@@ -920,9 +920,13 @@ static VKAPI_ATTR VkResult VKAPI_CALL Hook_CreateDevice(
         VkPhysicalDeviceProperties props{};
         ic->vkGetPhysicalDeviceProperties(physicalDevice, &props);
         std::snprintf(deviceName, sizeof(deviceName), "%s", props.deviceName);
-        if (props.vendorID != 0x10DE) {
+        const bool allowNonNv = getenv("DLSSNR_ALLOW_NON_NVIDIA") != nullptr;
+        if (props.vendorID != 0x10DE && !allowNonNv) {
             dc->inert = true;
             Log("[layer] inert on non-NVIDIA device (vendor %#x): %s", props.vendorID, deviceName);
+        } else if (props.vendorID != 0x10DE) {
+            Log("[layer] enabling layer on non-NVIDIA device (vendor %#x, DLSSNR_ALLOW_NON_NVIDIA=1): %s",
+                props.vendorID, deviceName);
         }
     }
 

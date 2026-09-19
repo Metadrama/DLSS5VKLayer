@@ -553,12 +553,15 @@ bool Composition::BuildMeterPipeline() {
         return false;
     }
 
-    VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 };
+    VkDescriptorPoolSize poolSizes[2] = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
+    };
     VkDescriptorPoolCreateInfo dpci{};
     dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets = 1;
-    dpci.poolSizeCount = 1;
-    dpci.pPoolSizes = &poolSize;
+    dpci.poolSizeCount = 2;
+    dpci.pPoolSizes = poolSizes;
     if (_vk->vkCreateDescriptorPool(_device, &dpci, nullptr, &_meterDescriptorPool) != VK_SUCCESS) {
         _vk->vkDestroyShaderModule(_device, module, nullptr);
         return false;
@@ -880,6 +883,8 @@ bool Composition::Prepare(uint32_t width, uint32_t height, VkFormat swapchainFor
     }
 
     if (!ok || !okTransport || !okWork || !okMeter || !okSuper) {
+        Log("[comp] fail details: ok=%d okTransport=%d okWork=%d okMeter=%d okSuper=%d",
+            ok, okTransport, okWork, okMeter, okSuper);
         _reason = "could not allocate the composition surfaces";
         DropAll();
         return false;
