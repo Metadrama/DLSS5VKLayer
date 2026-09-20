@@ -364,6 +364,7 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
         const bool helperPresent = s.hdr->helperState.load() != kHelperStopped;
         if (!helperPresent) return false;
 
+        bool frameReadyThisTick = false;
         // Check if previously dispatched frame is ready
         if (s.pendingReq != 0) {
             if (s.hdr->seq_resp.load() >= s.pendingReq) {
@@ -375,7 +376,7 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
                                 s.hdr->answeredH.load() == h;
                 if (ok && !answerFromFd && modelOut != (void*) s.outPixels) {
                     std::memcpy(modelOut, s.outPixels, bytes);
-                    s.hasComposedFrame = true;
+                    frameReadyThisTick = true;
                 }
                 s.pendingReq = 0;
             } else if (NowMs() - s.pendingSubmitMs > 2000.0) {
@@ -400,7 +401,7 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
             s.pendingSubmitMs = NowMs();
         }
 
-        return s.hasComposedFrame;
+        return frameReadyThisTick;
     }
     // When the transport buffer IS this region (the imported case), or the proxy crossed as a
     // dma-buf instead, the GPU already wrote the bytes where they belong and there is nothing to
