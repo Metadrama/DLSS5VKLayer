@@ -401,7 +401,9 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
             s.pendingSubmitMs = NowMs();
         }
 
-        return frameReadyThisTick;
+        // Once helper has answered, keep composing the valid neural frame in modelOut
+        // so every present is neural-rendered, preventing raw frame strobe flickering.
+        return frameReadyThisTick || s.everAnswered;
     }
     // When the transport buffer IS this region (the imported case), or the proxy crossed as a
     // dma-buf instead, the GPU already wrote the bytes where they belong and there is nothing to
