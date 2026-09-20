@@ -340,7 +340,10 @@ static bool DmaBufEnabled() {
 static bool AsyncEnabled() {
     static const bool on = [] {
         const char* v = getenv("DLSSNR_ASYNC");
-        return v && strcmp(v, "0") != 0;
+        if (v) return strcmp(v, "0") != 0;
+        const char* sync = getenv("DLSSNR_SYNC");
+        if (sync && strcmp(sync, "1") == 0) return false;
+        return true;
     }();
     return on;
 }
