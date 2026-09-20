@@ -128,6 +128,11 @@ struct ShmMap {
     uint32_t seq = 0;
     uint32_t timeouts = 0;
 
+    // Async pipeline tracking
+    uint32_t pendingReq = 0;
+    double pendingSubmitMs = 0.0;
+    bool hasComposedFrame = false;
+
     // Liveness, so a game is never made to wait on a helper that is not there.
     uint32_t firstHeartbeat = 0;
     bool everAnswered = false;
@@ -332,6 +337,14 @@ static bool DmaBufEnabled() {
     return on;
 }
 
+static bool AsyncEnabled() {
+    static const bool on = [] {
+        const char* v = getenv("DLSSNR_ASYNC");
+        return v && strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+
 static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, const void* proxy,
                           void* modelOut, bool proxyInRegion, bool answerFromFd, bool hdrEncode) {
     if (s.dead) return false;
@@ -343,6 +356,49 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
     const bool time = TimeEnabled();
     const double t0 = NowMs();
     if (!ShmMapFrames(s, bytes)) { s.dead = true; return false; }
+
+    if (AsyncEnabled()) {
+        const bool helperPresent = s.hdr->helperState.load() != kHelperStopped;
+        if (!helperPresent) return false;
+
+        // Check if previously dispatched frame is ready
+        if (s.pendingReq != 0) {
+            if (s.hdr->seq_resp.load() >= s.pendingReq) {
+                s.timeouts = 0;
+                s.everAnswered = true;
+                std::atomic_thread_fence(std::memory_order_acquire);
+                const bool ok = s.hdr->seq_ok.load() >= s.pendingReq &&
+                                s.hdr->answeredW.load() == w &&
+                                s.hdr->answeredH.load() == h;
+                if (ok && !answerFromFd && modelOut != (void*) s.outPixels) {
+                    std::memcpy(modelOut, s.outPixels, bytes);
+                    s.hasComposedFrame = true;
+                }
+                s.pendingReq = 0;
+            } else if (NowMs() - s.pendingSubmitMs > 2000.0) {
+                // Timeout after 2s without response from helper
+                s.pendingReq = 0;
+            }
+        }
+
+        // If ready, dispatch current frame to helper
+        if (s.pendingReq == 0) {
+            if (!proxyInRegion && proxy != (const void*) s.inPixels) {
+                std::memcpy(s.inPixels, proxy, bytes);
+            }
+            s.hdr->width.store(w);
+            s.hdr->height.store(h);
+            s.hdr->format.store(1u);
+            s.hdr->hdrEncode.store(hdrEncode ? 1u : 0u);
+            uint32_t req = s.hdr->seq_req.load() + 1;
+            std::atomic_thread_fence(std::memory_order_release);
+            s.hdr->seq_req.store(req);
+            s.pendingReq = req;
+            s.pendingSubmitMs = NowMs();
+        }
+
+        return s.hasComposedFrame;
+    }
     // When the transport buffer IS this region (the imported case), or the proxy crossed as a
     // dma-buf instead, the GPU already wrote the bytes where they belong and there is nothing to
     // copy.
